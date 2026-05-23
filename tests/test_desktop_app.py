@@ -6,6 +6,11 @@ from desktop_app import SunTimes, civil_twilight, compute_clock_state, minute_la
 
 class DesktopAppTests(unittest.TestCase):
     def test_sunrise_output_ranges(self):
+from desktop_app import SunTimes, compute_clock_state, sun_rise_set
+
+
+class DesktopAppTests(unittest.TestCase):
+    def test_sunrise_ordering(self):
         result = sun_rise_set(datetime(2024, 6, 1, tzinfo=timezone.utc), -122.4194, 37.7749)
         self.assertTrue(0 <= result.rise_min_utc < 24 * 60)
         self.assertTrue(0 <= result.set_min_utc < 24 * 60)

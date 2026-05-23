@@ -84,6 +84,7 @@ def sun_ra_dec(delta_days: float) -> tuple[float, float, float]:
 
 
 def sun_event_times(date_utc: datetime, longitude: float, latitude: float, altitude_deg: float, upper_limb: bool) -> SunTimes:
+def sun_rise_set(date_utc: datetime, longitude: float, latitude: float) -> SunTimes:
     delta_days = days_since_2000_jan_0(date_utc.year, date_utc.month, date_utc.day) + 0.5 - longitude / 360.0
     sidereal_time = revolution(gmst0(delta_days) + 180.0 + longitude)
     right_ascension, declination, solar_distance = sun_ra_dec(delta_days)
@@ -93,6 +94,9 @@ def sun_event_times(date_utc: datetime, longitude: float, latitude: float, altit
     effective_altitude = altitude_deg - solar_radius if upper_limb else altitude_deg
 
     cost = (math.sin(math.radians(effective_altitude)) - math.sin(math.radians(latitude)) * math.sin(math.radians(declination))) / (
+    altitude = -35.0 / 60.0 - solar_radius
+
+    cost = (math.sin(math.radians(altitude)) - math.sin(math.radians(latitude)) * math.sin(math.radians(declination))) / (
         math.cos(math.radians(latitude)) * math.cos(math.radians(declination))
     )
 
@@ -158,6 +162,8 @@ class HorizonDesktopApp:
         show_status_text: bool,
         show_solar_events: bool,
     ) -> None:
+class HorizonDesktopApp:
+    def __init__(self, latitude: float, longitude: float, battery: int, bluetooth: bool, window_size: int) -> None:
         self.latitude = latitude
         self.longitude = longitude
         self.battery = max(0, min(100, battery))
@@ -191,6 +197,7 @@ class HorizonDesktopApp:
         sun = sun_rise_set(now_utc, self.longitude, self.latitude)
         civil = civil_twilight(now_utc, self.longitude, self.latitude)
 
+        sun = sun_rise_set(now.astimezone(timezone.utc), self.longitude, self.latitude)
         timezone_offset_min = int(now.utcoffset().total_seconds() / 60) if now.utcoffset() else 0
         clock_state = compute_clock_state(sun, timezone_offset_min, sun_orbit)
 
@@ -283,6 +290,11 @@ class HorizonDesktopApp:
                     font=("Helvetica", max(8, int(readout * 0.10))),
                     fill=PALETTE["text"],
                 )
+        battery_text = f"BAT {self.battery:3d}%"
+        bluetooth_text = "BT ON" if self.bluetooth else "BT OFF"
+        bluetooth_color = PALETTE["online"] if self.bluetooth else PALETTE["offline"]
+        self.canvas.create_text(cx, cy - readout * 0.75, text=battery_text, font=("Helvetica", max(8, int(readout * 0.12))), fill=PALETTE["capacity"])
+        self.canvas.create_text(cx, cy + readout * 0.75, text=bluetooth_text, font=("Helvetica", max(8, int(readout * 0.12))), fill=bluetooth_color)
 
     def _schedule_next_tick(self, initial: bool = False) -> None:
         now = datetime.now()
@@ -343,6 +355,9 @@ def main() -> None:
         now_utc = utc_now()
         sun = sun_rise_set(now_utc, longitude, latitude)
         civil = civil_twilight(now_utc, longitude, latitude)
+    if args.print_state:
+        now_utc = utc_now()
+        sun = sun_rise_set(now_utc, longitude, latitude)
         print(
             json.dumps(
                 {
@@ -366,6 +381,7 @@ def main() -> None:
         show_status_text=not hide_status_text,
         show_solar_events=show_solar_events,
     ).run()
+    HorizonDesktopApp(latitude, longitude, battery, bluetooth, window_size).run()
 
 
 if __name__ == "__main__":

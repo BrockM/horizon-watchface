@@ -6,6 +6,7 @@ This repository now includes a **native desktop Python app** (`desktop_app.py`) 
 - central time/day/date readout
 - optional battery + bluetooth text
 - optional solar-event readout (civil sunrise, sunrise, noon, sunset, civil sunset)
+- battery + bluetooth indicators
 
 ## Run desktop app
 
@@ -42,6 +43,7 @@ Use a JSON config file:
   "window_size": 600,
   "hide_status_text": false,
   "show_solar_events": true
+  "window_size": 600
 }
 ```
 
@@ -56,3 +58,4 @@ python3 desktop_app.py --print-state
 ```
 
 The headless command prints sunrise/sunset/noon minutes in **UTC**, plus civil twilight and polar-day/night status.
+The headless command prints sunrise/sunset/noon minutes in **UTC** plus a polar-day/night status code.
