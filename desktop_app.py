@@ -83,6 +83,7 @@ def sun_ra_dec(delta_days: float) -> tuple[float, float, float]:
     return right_ascension, declination, solar_distance
 
 
+def sun_event_times(date_utc: datetime, longitude: float, latitude: float, altitude_deg: float, upper_limb: bool) -> SunTimes:
 def sun_rise_set(date_utc: datetime, longitude: float, latitude: float) -> SunTimes:
     delta_days = days_since_2000_jan_0(date_utc.year, date_utc.month, date_utc.day) + 0.5 - longitude / 360.0
     sidereal_time = revolution(gmst0(delta_days) + 180.0 + longitude)
@@ -90,6 +91,9 @@ def sun_rise_set(date_utc: datetime, longitude: float, latitude: float) -> SunTi
 
     south_hour = 12.0 - rev180(sidereal_time - right_ascension) / 15.0
     solar_radius = 0.2666 / solar_distance
+    effective_altitude = altitude_deg - solar_radius if upper_limb else altitude_deg
+
+    cost = (math.sin(math.radians(effective_altitude)) - math.sin(math.radians(latitude)) * math.sin(math.radians(declination))) / (
     altitude = -35.0 / 60.0 - solar_radius
 
     cost = (math.sin(math.radians(altitude)) - math.sin(math.radians(latitude)) * math.sin(math.radians(declination))) / (
@@ -107,6 +111,14 @@ def sun_rise_set(date_utc: datetime, longitude: float, latitude: float) -> SunTi
     set_ = int(round((south_hour + arc_hour) * 60)) % (24 * 60)
     south = int(round(south_hour * 60)) % (24 * 60)
     return SunTimes(rise_min_utc=rise, set_min_utc=set_, south_min_utc=south, status=status)
+
+
+def sun_rise_set(date_utc: datetime, longitude: float, latitude: float) -> SunTimes:
+    return sun_event_times(date_utc, longitude, latitude, altitude_deg=-35.0 / 60.0, upper_limb=True)
+
+
+def civil_twilight(date_utc: datetime, longitude: float, latitude: float) -> SunTimes:
+    return sun_event_times(date_utc, longitude, latitude, altitude_deg=-6.0, upper_limb=False)
 
 
 def minute_to_degrees(minutes: int) -> float:
@@ -135,12 +147,29 @@ def compute_clock_state(sun: SunTimes, timezone_offset_min: int, sun_orbit_radiu
     return ClockState(horizon=int((sunrise_y + sunset_y) / 2), kilter_deg=kilter_deg)
 
 
+def minute_label(total_min: int) -> str:
+    return f"{(total_min % (24*60)) // 60:02d}:{(total_min % (24*60)) % 60:02d}"
+
+
+class HorizonDesktopApp:
+    def __init__(
+        self,
+        latitude: float,
+        longitude: float,
+        battery: int,
+        bluetooth: bool,
+        window_size: int,
+        show_status_text: bool,
+        show_solar_events: bool,
+    ) -> None:
 class HorizonDesktopApp:
     def __init__(self, latitude: float, longitude: float, battery: int, bluetooth: bool, window_size: int) -> None:
         self.latitude = latitude
         self.longitude = longitude
         self.battery = max(0, min(100, battery))
         self.bluetooth = bluetooth
+        self.show_status_text = show_status_text
+        self.show_solar_events = show_solar_events
 
         self.root = tk.Tk()
         self.root.title("Horizon Watchface (Desktop)")
@@ -164,6 +193,10 @@ class HorizonDesktopApp:
         readout = sun_orbit - sun_disc * 1.4
 
         now = datetime.now().astimezone()
+        now_utc = now.astimezone(timezone.utc)
+        sun = sun_rise_set(now_utc, self.longitude, self.latitude)
+        civil = civil_twilight(now_utc, self.longitude, self.latitude)
+
         sun = sun_rise_set(now.astimezone(timezone.utc), self.longitude, self.latitude)
         timezone_offset_min = int(now.utcoffset().total_seconds() / 60) if now.utcoffset() else 0
         clock_state = compute_clock_state(sun, timezone_offset_min, sun_orbit)
@@ -215,6 +248,48 @@ class HorizonDesktopApp:
             fill=PALETTE["text"],
         )
 
+        if self.show_status_text:
+            battery_text = f"BAT {self.battery:3d}%"
+            bluetooth_text = "BT ON" if self.bluetooth else "BT OFF"
+            bluetooth_color = PALETTE["online"] if self.bluetooth else PALETTE["offline"]
+            self.canvas.create_text(
+                cx,
+                cy - readout * 0.75,
+                text=battery_text,
+                font=("Helvetica", max(8, int(readout * 0.12))),
+                fill=PALETTE["capacity"],
+            )
+            self.canvas.create_text(
+                cx,
+                cy + readout * 0.75,
+                text=bluetooth_text,
+                font=("Helvetica", max(8, int(readout * 0.12))),
+                fill=bluetooth_color,
+            )
+
+        if self.show_solar_events:
+            normal_rise_local = (sun.rise_min_utc + timezone_offset_min) % (24 * 60)
+            normal_set_local = (sun.set_min_utc + timezone_offset_min) % (24 * 60)
+            noon_local = (sun.south_min_utc + timezone_offset_min) % (24 * 60)
+            civil_rise_local = (civil.rise_min_utc + timezone_offset_min) % (24 * 60)
+            civil_set_local = (civil.set_min_utc + timezone_offset_min) % (24 * 60)
+
+            lines = [
+                f"Civil Sunrise: {minute_label(civil_rise_local)}",
+                f"Sunrise: {minute_label(normal_rise_local)}",
+                f"Noon: {minute_label(noon_local)}",
+                f"Sunset: {minute_label(normal_set_local)}",
+                f"Civil Sunset: {minute_label(civil_set_local)}",
+            ]
+            y0 = cy + readout + 12
+            for i, line in enumerate(lines):
+                self.canvas.create_text(
+                    cx,
+                    y0 + i * max(10, int(readout * 0.10)),
+                    text=line,
+                    font=("Helvetica", max(8, int(readout * 0.10))),
+                    fill=PALETTE["text"],
+                )
         battery_text = f"BAT {self.battery:3d}%"
         bluetooth_text = "BT ON" if self.bluetooth else "BT OFF"
         bluetooth_color = PALETTE["online"] if self.bluetooth else PALETTE["offline"]
@@ -257,6 +332,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--battery", type=int, default=76)
     parser.add_argument("--bluetooth", action="store_true", default=False)
     parser.add_argument("--window-size", type=int, default=480)
+    parser.add_argument("--hide-status-text", action="store_true", help="Hide battery and bluetooth text")
+    parser.add_argument("--show-solar-events", action="store_true", help="Show civil sunrise/sunrise/noon/sunset/civil sunset")
     parser.add_argument("--print-state", action="store_true", help="Print computed sun state and exit")
     return parser.parse_args()
 
@@ -271,6 +348,13 @@ def main() -> None:
     bluetooth = bool(cfg.get("bluetooth", args.bluetooth))
     window_size = int(cfg.get("window_size", args.window_size))
 
+    hide_status_text = bool(cfg.get("hide_status_text", args.hide_status_text))
+    show_solar_events = bool(cfg.get("show_solar_events", args.show_solar_events))
+
+    if args.print_state:
+        now_utc = utc_now()
+        sun = sun_rise_set(now_utc, longitude, latitude)
+        civil = civil_twilight(now_utc, longitude, latitude)
     if args.print_state:
         now_utc = utc_now()
         sun = sun_rise_set(now_utc, longitude, latitude)
@@ -280,12 +364,23 @@ def main() -> None:
                     "rise_min_utc": sun.rise_min_utc,
                     "set_min_utc": sun.set_min_utc,
                     "south_min_utc": sun.south_min_utc,
+                    "civil_rise_min_utc": civil.rise_min_utc,
+                    "civil_set_min_utc": civil.set_min_utc,
                     "status": sun.status,
                 }
             )
         )
         return
 
+    HorizonDesktopApp(
+        latitude=latitude,
+        longitude=longitude,
+        battery=battery,
+        bluetooth=bluetooth,
+        window_size=window_size,
+        show_status_text=not hide_status_text,
+        show_solar_events=show_solar_events,
+    ).run()
     HorizonDesktopApp(latitude, longitude, battery, bluetooth, window_size).run()
 
 
